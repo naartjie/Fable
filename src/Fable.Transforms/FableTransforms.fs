@@ -44,8 +44,11 @@ let visit f e =
         let info = { info with ThisArg = Option.map f info.ThisArg
                                Args = List.map f info.Args }
         Call(f callee, info, t, r)
-    | Emit(info, t, r) ->
-        Emit({ info with Args = List.map f info.Args }, t, r)
+    | Emit(macro, isStament, info, t, r) ->
+        let info = info |> Option.map (fun info ->
+            { info with ThisArg = Option.map f info.ThisArg
+                        Args = List.map f info.Args })
+        Emit(macro, isStament, info, t, r)
     | Operation(kind, t, r) ->
         match kind with
         | Unary(operator, operand) ->
@@ -119,7 +122,8 @@ let getSubExpressions = function
         match baseCall with Some b -> b::members | None -> members
     | CurriedApply(callee, args, _, _) -> callee::args
     | Call(e1, info, _, _) -> e1 :: (Option.toList info.ThisArg) @ info.Args
-    | Emit(info, _, _) -> info.Args
+    | Emit(_,_,None, _, _) -> []
+    | Emit(_,_,Some info, _, _) -> (Option.toList info.ThisArg) @ info.Args
     | Operation(kind, _, _) ->
         match kind with
         | Unary(_, operand) -> [operand]
@@ -458,10 +462,10 @@ module private Transforms =
             | NestedLambdaType(argTypes, _) ->
                 CurriedApply(callee, uncurryArgs com false argTypes args, t, r)
             | _ -> e
-        | Emit(info, t, r) ->
+        | Emit(macro, isStatement, Some info, t, r) ->
             let autoUncurrying = List.isEmpty info.SignatureArgTypes
             let args = uncurryArgs com autoUncurrying info.SignatureArgTypes info.Args
-            Emit({ info with Args = args }, t, r)
+            Emit(macro, isStatement, Some { info with Args = args }, t, r)
         // Uncurry also values in setters or new record/union/tuple
         | Value(NewRecord(args, ent, genArgs), r) ->
             let args = uncurryConsArgs args ent.FSharpFields

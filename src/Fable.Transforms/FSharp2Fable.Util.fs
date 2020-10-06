@@ -1230,37 +1230,15 @@ module Util =
         | _ -> None
 
     let (|Emitted|_|) com r typ (callInfo: Fable.CallInfo option) (memb: FSharpMemberOrFunctionOrValue) =
-        let (|SplitLast|_|) = function
-            | [] -> None
-            | xs -> List.splitLast xs |> Some
-
-        let hasSpread, thisArg, args, argTypes =
-            match callInfo with
-            | Some i -> i.HasSpread, i.ThisArg, i.Args, i.SignatureArgTypes
-            | None -> false, None, [], []
-
         memb.Attributes |> Seq.tryPick (fun att ->
             match att.AttributeType.TryFullName with
             | Some(Naming.StartsWith Atts.emit _ as attFullName) ->
-                let args, argTypes =
-                    match hasSpread, args with
-                    | _, [Fable.Value(Fable.UnitConstant, _)] -> [], []
-                    | true, SplitLast(args, Fable.Value(Fable.NewArray(args2, _),_)) ->
-                        args @ args2, argTypes
-                    | true, _ ->
-                        "Don't pass an array to ParamArray for methods emitting JS"
-                        |> addErrorAndReturnNull com [] r
-                        |> List.singleton, []
-                    | _ -> args, argTypes
-                let args, argTypes =
-                    match thisArg with
-                    | Some thisArg -> thisArg::args, thisArg.Type::argTypes
-                    | None -> args, argTypes
-                let args, argTypes =
+                let callInfo =
                     // Allow combination of Import and Emit attributes
-                    match tryGlobalOrImportedMember com Fable.Any memb with
-                    | Some importExpr -> importExpr::args, importExpr.Type::argTypes
-                    | None -> args, argTypes
+                    match callInfo, tryGlobalOrImportedMember com Fable.Any memb with
+                    | Some callInfo, Some importExpr ->
+                        Some { callInfo with Fable.ThisArg = Some importExpr }
+                    | _ -> callInfo
                 let isStatement = tryAttributeConsArg att 1 false tryBoolean
                 let macro = tryAttributeConsArg att 0  "" tryString
                 let macro =
@@ -1270,13 +1248,7 @@ module Util =
                     | Atts.emitIndexer -> "$0[$1]{{=$2}}"
                     | Atts.emitProperty -> "$0." + macro + "{{=$1}}"
                     | _ -> macro
-                let i: Fable.EmitInfo = {
-                    Macro = macro
-                    Args = args
-                    SignatureArgTypes = argTypes
-                    IsJsStatement = isStatement
-                }
-                Fable.Emit(i, typ, r) |> Some
+                Fable.Emit(macro, isStatement, callInfo, typ, r) |> Some
             | _ -> None)
 
     let (|Imported|_|) com r typ callInfo (memb: FSharpMemberOrFunctionOrValue, entity: FSharpEntity option) =
@@ -1301,7 +1273,7 @@ module Util =
                 callInstanceMember com r typ callInfo e memb |> Some
 
             | Some classExpr, None when memb.IsConstructor ->
-                emitJsExpr r typ (classExpr::callInfo.Args) "new $0($1...)" |> Some
+                Fable.Call(classExpr, { callInfo with IsJsConstructor = true }, typ, r) |> Some
 
             | Some moduleOrClassExpr, None ->
                 if isModuleValueForCalls e memb then

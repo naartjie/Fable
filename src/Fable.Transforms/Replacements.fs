@@ -12,8 +12,9 @@ type ICompiler = FSharp2Fable.IFableCompiler
 type CallInfo = ReplaceCallInfo
 
 type Helper =
-    static member JsConstructorCall(consExpr: Expr, returnType: Type, args: Expr list, ?loc: SourceLocation) =
-        emitJsExpr loc returnType (consExpr::args) "new $0($1...)"
+    static member JsConstructorCall(consExpr: Expr, returnType: Type, args: Expr list, ?argTypes, ?loc: SourceLocation) =
+        let info = defaultArg argTypes [] |> makeCallInfo None args
+        Call(consExpr, { info with IsJsConstructor = true }, returnType, loc)
 
     static member InstanceCall(callee: Expr, memb: string, returnType: Type, args: Expr list,
                                ?argTypes: Type list, ?loc: SourceLocation) =
@@ -704,7 +705,7 @@ let identityHashMethod = function
     | _ -> "Util", "identityHash"
 
 let structuralHashMethod = function
-    | DeclaredType(ent, _) -> getEntityHashMethod ent
+    | DeclaredType(ent, _) when not ent.IsInterface -> getEntityHashMethod ent
     | _ -> "Util", "structuralHash"
 
 let identityHash com r (arg: Expr) =
@@ -1116,12 +1117,7 @@ let fableCoreLib (com: ICompiler) (ctx: Context) r t (i: CallInfo) (thisArg: Exp
             | Fable.Value(Fable.StringConstant macro,_) ->
                 let args = destructureTupleArgs [args]
                 let isStatement = rest = "Statement"
-                let info: Fable.EmitInfo =
-                    { Macro = macro
-                      Args = args
-                      SignatureArgTypes = []
-                      IsJsStatement = isStatement }
-                Emit(info, t, r) |> Some
+                emitJs r t args isStatement macro |> Some
             | _ -> "emitJs only accepts string literals" |> addError com ctx.InlinePath r; None
         | "op_EqualsEqualsGreater", [name; MaybeLambdaUncurriedAtCompileTime value] ->
             NewTuple [name; value] |> makeValue r |> Some

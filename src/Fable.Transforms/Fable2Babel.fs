@@ -582,7 +582,7 @@ module Util =
         | Fable.Sequential _ | Fable.Let _ | Fable.Set _
         | Fable.ForLoop _ | Fable.WhileLoop _ -> true
 
-        | Fable.Emit(info,_,_) -> info.IsJsStatement
+        | Fable.Emit(_,isStatement,_,_,_) -> isStatement
 
         | Fable.DecisionTreeSuccess(targetIndex,_, _) ->
             getDecisionTarget ctx targetIndex
@@ -949,8 +949,6 @@ module Util =
     let extractBaseExprFromBaseCall com ctx baseCall =
         let baseRef, args, hasSpread =
             match baseCall with
-            | Fable.Emit({Args=(baseRef::args)},_,_) -> // "new $0($1...)"
-                baseRef, args, false
             | Fable.Call(baseRef, info,_,_) ->
                 baseRef, info.Args, info.HasSpread
             | _ ->
@@ -1070,9 +1068,15 @@ module Util =
         | Fable.Logical(op, TransformExpr com ctx left, TransformExpr com ctx right) ->
             upcast LogicalExpression (op, left, right, ?loc=range)
 
-    let transformEmit com ctx range (info: Fable.EmitInfo) =
-        transformCallArgs com ctx false info.Args
-        |> emitExpression range info.Macro
+    let transformEmit (com: IBabelCompiler) ctx range (info: Fable.CallInfo option) macro =
+        let thisArg, args, hasSpread =
+            match info with
+            | Some info -> info.ThisArg, info.Args, info.HasSpread
+            | None -> None, [], false
+        let thisArg = thisArg |> Option.map (fun e -> com.TransformAsExpr(ctx, e)) |> Option.toList
+        transformCallArgs com ctx hasSpread args
+        |> List.append thisArg
+        |> emitExpression range macro
 
     let transformCall com ctx range callee (callInfo: Fable.CallInfo) =
         let args = transformCallArgs com ctx callInfo.HasSpread callInfo.Args
@@ -1516,9 +1520,9 @@ module Util =
             List.mapToArray (fun e -> com.TransformAsExpr(ctx, e)) exprs
             |> SequenceExpression :> Expression
 
-        | Fable.Emit(info, _, range) ->
-            if info.IsJsStatement then iife com ctx expr :> Expression
-            else transformEmit com ctx range info
+        | Fable.Emit(macro, isStatement, info, _, range) ->
+            if isStatement then iife com ctx expr :> Expression
+            else transformEmit com ctx range info macro
 
         // These cannot appear in expression position in JS, must be wrapped in a lambda
         | Fable.WhileLoop _ | Fable.ForLoop _ | Fable.TryCatch _ ->
@@ -1564,9 +1568,9 @@ module Util =
         | Fable.CurriedApply(callee, args, typ, range) ->
             transformCurriedApplyAsStatements com ctx range typ returnStrategy callee args
 
-        | Fable.Emit(info, t, range) ->
-            let e = transformEmit com ctx range info
-            if info.IsJsStatement then
+        | Fable.Emit(macro, isStatement, info, t, range) ->
+            let e = transformEmit com ctx range info macro
+            if isStatement then
                 [|ExpressionStatement(e)|] // Ignore the return strategy
             else [|resolveExpr t returnStrategy e|]
 

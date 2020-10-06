@@ -223,12 +223,6 @@ type ReplaceCallInfo =
       DeclaringEntityFullName: string
       GenericArgs: (string * Type) list }
 
-type EmitInfo =
-    { Macro: string
-      Args: Expr list
-      SignatureArgTypes: Type list
-      IsJsStatement: bool }
-
 type ImportInfo =
     { Selector: Expr
       Path: Expr
@@ -282,7 +276,7 @@ type Expr =
 
     // JS related: imports and statements
     | Import of ImportInfo * Type * SourceLocation option
-    | Emit of EmitInfo * typ: Type * range: SourceLocation option
+    | Emit of macro: string * isJsStament: bool * info: CallInfo option * typ: Type * range: SourceLocation option
 
     // Pattern matching
     | DecisionTree of Expr * targets: (Ident list * Expr) list
@@ -313,7 +307,7 @@ type Expr =
         | ObjectExpr (_, t, _)
         | Operation (_, t, _)
         | Get (_, _, t, _)
-        | Emit (_,t,_)
+        | Emit (_,_,_,t,_)
         | DecisionTreeSuccess (_, _, t) -> t
         | Set _
         | WhileLoop _
@@ -339,7 +333,7 @@ type Expr =
         | IdentExpr id -> id.Range
         | Call(_,_,_,r)
         | CurriedApply(_,_,_,r)
-        | Emit (_,_,r)
+        | Emit (_,_,_,_,r)
         | Import(_,_,r)
         | Curry(_,_,_,r)
         | Value (_, r)
