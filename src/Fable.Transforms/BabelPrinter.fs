@@ -27,7 +27,7 @@ type PrinterImpl(writer: Writer, map: SourceMapGenerator) =
     let mutable line = 1
     let mutable column = 0
 
-    let addLoc (loc: SourceLocation option) =
+    let addLoc (loc: Fable.AST.SourceLocation option) =
         match loc with
         | None -> ()
         | Some loc ->

@@ -42,7 +42,7 @@ type Log =
     { Message: string
       Tag: string
       Severity: Severity
-      Range: SourceLocation option
+      Range: Fable.AST.SourceLocation option
       FileName: string option }
 
     static member Make(severity, msg, ?fileName, ?range, ?tag) =
@@ -72,13 +72,16 @@ type CompilerImpl(currentFile, project: Project, options, fableLibraryDir: strin
         member _.LibraryDir = fableLibraryDir
         member _.CurrentFile = currentFile
         member _.ImplementationFiles = project.ImplementationFiles
-        member x.GetRootModule(fileName) =
+
+        member _.GetEntity(fullName) = Unchecked.defaultof<_>
+
+        member this.GetRootModule(fileName) =
             let fileName = Path.normalizePathAndEnsureFsExtension fileName
             match project.RootModules.TryGetValue(fileName) with
             | true, rootModule -> rootModule
             | false, _ ->
                 let msg = sprintf "Cannot find root module for %s. If this belongs to a package, make sure it includes the source files." fileName
-                (x :> Compiler).AddLog(msg, Severity.Warning)
+                (this :> Compiler).AddLog(msg, Severity.Warning)
                 "" // failwith msg
 
         member _.GetOrAddInlineExpr(fullName, generate) =

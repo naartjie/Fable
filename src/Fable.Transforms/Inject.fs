@@ -27,7 +27,7 @@ let (|GeneratedInterface|_|) com ctx r t =
     match t with
     | Fable.DeclaredType(typDef,[t]) ->
         // TODO: Unify with Replacements.injectArg?
-        match typDef.FullName with
+        match typDef with
         | Types.typeResolver ->
             let fn = Fable.Value(Fable.TypeInfo t, r) |> makeDelegate []
             Replacements.Helpers.objExpr ["ResolveType", fn] |> Some
@@ -42,12 +42,12 @@ let (|GeneratedInterface|_|) com ctx r t =
         | _ -> None
     | _ -> None
 
-let injectArg com ctx r (genArgs: (string * Fable.Type) list) (par: FSharpParameter): Fable.Expr =
-    let parType = nonAbbreviatedType par.Type
+let injectArg com ctx r (genArgs: (string * Fable.Type) list) (par: Fable.Parameter): Fable.Expr =
+    let parType = par.Type
     let typ =
         // The type of the parameter must be an option
         if parType.HasTypeDefinition && parType.TypeDefinition.TryFullName = Some Types.option
-        then makeType (Map genArgs) parType.GenericArguments.[0] |> Some
+        then makeType com (Map genArgs) parType.GenericArguments.[0] |> Some
         else None
     match typ with
     | Some(GeneratedInterface com ctx r e) -> e

@@ -1,106 +1,63 @@
 [<RequireQualifiedAccess>]
-module Fable.Transforms.OverloadSuffix
+module rec Fable.Transforms.OverloadSuffix
 
 open Fable
+open Fable.AST
 open System.Collections.Generic
-open FSharp.Compiler.SourceCodeServices
-
-type ParamTypes = FSharpType list
-
-[<RequireQualifiedAccess>]
-module private Atts =
-    let [<Literal>] replaces = "Fable.Core.ReplacesAttribute" // typeof<Fable.Core.ReplacesAttribute>.FullName
-    let [<Literal>] overloadSuffix = "Fable.Core.OverloadSuffixAttribute" // typeof<Fable.Core.OverloadSuffixAttribute>.FullName
-
-[<RequireQualifiedAccess>]
-module private Types =
-    let [<Literal>] object = "System.Object"
-    let [<Literal>] unit = "Microsoft.FSharp.Core.Unit"
-
-// NOTE: These helper functions are (more or less) duplicated from FSharp2Fable.Util
-let rec private nonAbbreviatedType (t: FSharpType) =
-    if t.IsAbbreviation then nonAbbreviatedType t.AbbreviatedType else t
-
-let private isUnit (typ: FSharpType) =
-    let typ = nonAbbreviatedType typ
-    if typ.HasTypeDefinition
-    then typ.TypeDefinition.TryFullName = Some Types.unit
-    else false
-
-let private tryFindAttributeArgs fullName (atts: #seq<FSharpAttribute>) =
-    atts |> Seq.tryPick (fun att ->
-        match att.AttributeType.TryFullName with
-        | Some fullName' ->
-            if fullName = fullName'
-            then att.ConstructorArguments |> Seq.map snd |> Seq.toList |> Some
-            else None
-        | None -> None)
-
-// -------- End of helper functions
 
 let private hashToString (i: int) =
     if i < 0
     then "Z" + (abs i).ToString("X")
     else i.ToString("X")
 
-// Not perfect but hopefully covers most of the cases
-// Using only common constrains from https://docs.microsoft.com/en-us/dotnet/fsharp/language-reference/generics/constraints
-let rec private getGenericParamConstrainsHash genParams (p: FSharpGenericParameter) =
-    let getConstrainHash (c: FSharpGenericParameterConstraint) =
-        if c.IsCoercesToConstraint then
-            ":>" + getTypeFastFullName genParams c.CoercesToTarget
-        elif c.IsSupportsNullConstraint then
-            "null"
-        elif c.IsMemberConstraint then
-            let d = c.MemberConstraintData // TODO: Full member signature hash?
-            (if d.MemberIsStatic then "static " else "") + "member " + d.MemberName
-        elif c.IsRequiresDefaultConstructorConstraint then
-            "new"
-        elif c.IsNonNullableValueTypeConstraint then
-            "struct"
-        elif c.IsReferenceTypeConstraint then
-            "not struct"
-        elif c.IsComparisonConstraint then
-            "comparison"
-        elif c.IsEqualityConstraint then
-            "equality"
-        elif c.IsUnmanagedConstraint then
-            "unmanaged"
-        else ""
-    p.Constraints |> Seq.map getConstrainHash |> String.concat ","
+let private getGenericConstraintHash genParams (c: Fable.GenericConstraint) =
+    match c with
+    | Fable.MayResolveMember i ->
+         // TODO: Full member signature hash?
+         "" + (if i.IsStatic then "static " else "") + "member " + i.Name
+    | Fable.IsEnum -> "enum"
+    | Fable.CoercesTo t -> ":>" + (getTypeFastFullName genParams t)
+    | Fable.SupportsNull -> "null"
+    | Fable.RequiresDefaultConstructor -> "new"
+    | Fable.IsNonNullableStruct -> "struct"
+    | Fable.IsReferenceType -> "not struct"
+    | Fable.SupportsComparison -> "comparison"
+    | Fable.SupportsEquality -> "equality"
 
-// Attention: we need to keep this similar to FSharp2Fable.TypeHelpers.makeType
-and private getTypeFastFullName (genParams: IDictionary<_,_>) (t: FSharpType) =
-    let t = nonAbbreviatedType t
-    if t.IsGenericParameter then
-        match genParams.TryGetValue(t.GenericParameter.Name) with
+let rec private getTypeFastFullName (genParams: IDictionary<_,_>) (t: Fable.Type) =
+    match t with
+    | Fable.MetaType -> Types.type_
+    | Fable.Any -> Types.object
+    | Fable.Unit -> Types.unit
+    | Fable.Boolean -> Types.bool
+    | Fable.Char -> Types.char
+    | Fable.String -> Types.string
+    | Fable.Regex -> Types.regex
+    | Fable.Number kind ->
+        Types.numberKind
+        |> Seq.tryFind (fun kv -> kv.Value = kind)
+        |> function Some kv -> kv.Key | None -> "number"
+    | Fable.Enum ent -> ent
+    | Fable.Tuple gen -> gen |> List.map (getTypeFastFullName genParams) |> String.concat " * "
+    | Fable.Array gen -> getTypeFastFullName genParams gen + "[]"
+    | Fable.List gen -> getTypeFastFullName genParams gen + " list"
+    | Fable.Option gen -> getTypeFastFullName genParams gen + " option"
+    | Fable.LambdaType(gen1, gen2) ->
+        getTypeFastFullName genParams gen1 + " -> " + getTypeFastFullName genParams gen2
+    | Fable.DelegateType(gen1, gen2) ->
+        let gen1 = "(" + (gen1 |> List.map (getTypeFastFullName genParams) |> String.concat ", ") + ") => "
+        gen1 + getTypeFastFullName genParams gen2
+    | Fable.GenericParam g ->
+        match genParams.TryGetValue(g.Name) with
         | true, i -> i
-        | false, _ -> getGenericParamConstrainsHash genParams t.GenericParameter
-    elif t.IsTupleType
-    then t.GenericArguments |> Seq.map (getTypeFastFullName genParams) |> String.concat " * "
-    elif t.IsFunctionType
-    then t.GenericArguments |> Seq.map (getTypeFastFullName genParams) |> String.concat " -> "
-    elif t.IsAnonRecordType then
-        Seq.zip t.AnonRecordTypeDetails.SortedFieldNames t.GenericArguments
-        |> Seq.map (fun (key, typ) -> key + " : " + getTypeFastFullName genParams typ)
+        | false, _ -> "'" + (List.map (getGenericConstraintHash genParams) g.Constraints |> String.concat ",")
+    | Fable.AnonymousRecordType(fieldNames, gen) ->
+        List.zip fieldNames gen
+        |> List.map (fun (key, typ) -> key + " : " + getTypeFastFullName genParams typ)
         |> String.concat "; "
-    elif t.HasTypeDefinition
-    then
-        let tdef = t.TypeDefinition
-        let genArgs = t.GenericArguments |> Seq.map (getTypeFastFullName genParams) |> String.concat ","
-        if tdef.IsArrayType
-        then genArgs + "[]"
-        elif tdef.IsByRef // Ignore byref
-        then genArgs
-        else
-            match tryFindAttributeArgs Atts.replaces tdef.Attributes with
-            | Some [:? string as replacedTypeFullName] ->
-                let genArgs = if genArgs = "" then "" else "[" + genArgs + "]"
-                replacedTypeFullName + genArgs
-            | _ ->
-                let genArgs = if genArgs = "" then "" else "[" + genArgs + "]"
-                tdef.FullName + genArgs
-    else Types.object
+    | Fable.DeclaredType(e, gen) ->
+        let gen = gen |> List.map (getTypeFastFullName genParams) |> String.concat ", "
+        e + (if gen = "" then "" else "[" + gen + "]")
 
 // From https://stackoverflow.com/a/37449594
 let private combineHashCodes (hashes: int seq) =
@@ -117,27 +74,29 @@ let private stringHash (s: string) =
         h <- (h * 33) ^^^ (int s.[i])
     h
 
-let private getHashPrivate (atts: IList<FSharpAttribute>) (paramTypes: ParamTypes) genParams =
-    match tryFindAttributeArgs Atts.overloadSuffix atts with
-    | Some [:? string as overloadSuffix] -> overloadSuffix
-    | _ ->
+let [<Literal>] noOverloadSuffix = "Fable.Core.OverloadSuffixAttribute" // typeof<Fable.Core.NoOverloadSuffixAttribute>.FullName
+
+let private getHashPrivate (entAtts: Fable.Attribute list) (paramTypes: Fable.Type list) genParams =
+    // This is only needed when compiling fable-library, use conditional compilation?
+    if entAtts |> List.exists (fun a -> a.FullName = noOverloadSuffix) then ""
+    else
         paramTypes
         |> List.map (getTypeFastFullName genParams >> stringHash)
         |> combineHashCodes
         |> hashToString
 
-let hasEmptyOverloadSuffix (curriedParamTypes: ParamTypes) =
+let hasEmptyOverloadSuffix (curriedParamTypes: Fable.Type list) =
     // Don't use overload suffix for members without arguments
     match curriedParamTypes with
     | [] -> true
-    | [argType] when isUnit argType -> true
+    | [Fable.Unit] -> true
     | _ -> false
 
-let getHash (entity: FSharpEntity) (m: FSharpMemberOrFunctionOrValue) =
+let getHash (entity: Fable.Entity) (m: Fable.MemberFunctionOrValue) =
     // Members with curried params cannot be overloaded in F#
     // TODO: Also private methods defined with `let` cannot be overloaded
     // but I don't know how to identify them in the AST
-    if m.CurriedParameterGroups.Count <> 1 then ""
+    if not(List.isSingle m.CurriedParameterGroups) then ""
     else
         let paramTypes = m.CurriedParameterGroups.[0] |> Seq.map (fun p -> p.Type) |> Seq.toList
         if hasEmptyOverloadSuffix paramTypes then ""
@@ -150,25 +109,25 @@ let getHash (entity: FSharpEntity) (m: FSharpMemberOrFunctionOrValue) =
                 |> dict
             getHashPrivate m.Attributes paramTypes genParams
 
-let getAbstractSignatureHash (entity: FSharpEntity) (m: FSharpAbstractSignature) =
-    // Members with curried params cannot be overloaded in F#
-    if m.AbstractArguments.Count <> 1 then ""
-    else
-        let paramTypes = m.AbstractArguments.[0] |> Seq.map (fun p -> p.Type) |> Seq.toList
-        if hasEmptyOverloadSuffix paramTypes then ""
-        else
-            // Generics can have different names in signature
-            // and implementation, use the position instead
-            let genParams =
-                entity.GenericParameters
-                |> Seq.mapi (fun i p -> p.Name, string i)
-                |> dict
-            getHashPrivate [||] paramTypes genParams
+//let getAbstractSignatureHash (entity: Fable.Entity) (m: FSharpAbstractSignature) =
+//    // Members with curried params cannot be overloaded in F#
+//    if m.AbstractArguments.Count <> 1 then ""
+//    else
+//        let paramTypes = m.AbstractArguments.[0] |> Seq.map (fun p -> p.Type) |> Seq.toList
+//        if hasEmptyOverloadSuffix paramTypes then ""
+//        else
+//            // Generics can have different names in signature
+//            // and implementation, use the position instead
+//            let genParams =
+//                entity.GenericParameters
+//                |> Seq.mapi (fun i p -> p.Name, string i)
+//                |> dict
+//            getHashPrivate [||] paramTypes genParams
 
 /// Used for extension members
-let getExtensionHash (m: FSharpMemberOrFunctionOrValue) =
+let getExtensionHash (m: Fable.MemberFunctionOrValue) =
     // Members with curried params cannot be overloaded in F#
-    if m.CurriedParameterGroups.Count <> 1 then ""
+    if not(List.isSingle m.CurriedParameterGroups) then ""
     else
         let paramTypes = m.CurriedParameterGroups.[0] |> Seq.map (fun p -> p.Type) |> Seq.toList
         if hasEmptyOverloadSuffix paramTypes then ""

@@ -90,6 +90,22 @@ module Types =
     let [<Literal>] adder = "Fable.Core.IGenericAdder`1"
     let [<Literal>] averager = "Fable.Core.IGenericAverager`1"
 
+    let numberKind =
+        dict [ int8, Fable.AST.Int8
+               uint8, Fable.AST.UInt8
+               int16, Fable.AST.Int16
+               uint16, Fable.AST.UInt16
+               int32, Fable.AST.Int32
+               uint32, Fable.AST.UInt32
+               float32, Fable.AST.Float32
+               float64, Fable.AST.Float64
+               // Units of measure
+               "Microsoft.FSharp.Core.sbyte`1", Fable.AST.Int8
+               "Microsoft.FSharp.Core.int16`1", Fable.AST.Int16
+               "Microsoft.FSharp.Core.int`1", Fable.AST.Int32
+               "Microsoft.FSharp.Core.float32`1", Fable.AST.Float32
+               "Microsoft.FSharp.Core.float`1", Fable.AST.Float64 ]
+
 [<RequireQualifiedAccess>]
 module Operators =
     let [<Literal>] addition = "op_Addition"
@@ -162,6 +178,7 @@ module Extensions =
 [<AutoOpen>]
 module Log =
     open Fable
+    open Fable.AST
 
     type InlinePath = {
         ToFile: string
@@ -324,12 +341,11 @@ module AST =
         | _ -> false
 
     let makeFieldKey name isMutable typ =
-        FieldKey({ new Field with
-                    member _.Name = name
-                    member _.IsMutable = isMutable
-                    member _.IsStatic = false
-                    member _.FieldType = typ
-                    member _.LiteralValue = None })
+        FieldKey({ Name = name
+                   IsMutable = isMutable
+                   IsStatic = false
+                   FieldType = typ
+                   LiteralValue = None })
 
     /// ATTENTION: Make sure the ident name is unique
     let makeTypedIdent typ name =
@@ -498,8 +514,8 @@ module AST =
 
     /// When strict is false doesn't take generic params into account (e.g. when solving SRTP)
     let rec typeEquals strict typ1 typ2 =
-        let entEquals (ent1: Entity) gen1 (ent2: Entity) gen2 =
-            ent1.FullName = ent2.FullName && listEquals (typeEquals strict) gen1 gen2
+        let entEquals (ent1: string) gen1 (ent2: string) gen2 =
+            ent1 = ent2 && listEquals (typeEquals strict) gen1 gen2
         match typ1, typ2 with
         | Any, Any
         | Unit, Unit
@@ -518,14 +534,13 @@ module AST =
         | DelegateType(as1, t1), DelegateType(as2, t2) ->
             listEquals (typeEquals strict) as1 as2 && typeEquals strict t1 t2
         | DeclaredType(ent1, gen1), DeclaredType(ent2, gen2) ->
-            ent1.FullName = ent2.FullName && listEquals (typeEquals strict) gen1 gen2
+            entEquals ent1 gen1 ent2 gen2
         | GenericParam _, _ | _, GenericParam _ when not strict -> true
         | GenericParam name1, GenericParam name2 -> name1 = name2
         | _ -> false
 
     let rec getTypeFullName prettify t =
-        let getEntityFullName (ent: Entity) gen =
-            let fullname = ent.FullName
+        let getEntityFullName (fullname: string) gen =
             if List.isEmpty gen then fullname
             else
                 let gen = (List.map (getTypeFullName prettify) gen |> String.concat ",")
@@ -539,7 +554,7 @@ module AST =
                 fullname + "[" + gen + "]"
         match t with
         | AnonymousRecordType _ -> ""
-        | GenericParam name -> "'" + name
+        | GenericParam g -> "'" + g.Name
         | Enum ent -> getEntityFullName ent []
         | Regex    -> Types.regex
         | MetaType -> Types.type_

@@ -74,11 +74,6 @@ module Reflection =
     let private libReflectionCall (com: IBabelCompiler) ctx r memberName args =
         libCall com ctx r "Reflection" (memberName + "_type") args
 
-    let private asFSharpEntity (ent: Fable.Entity) =
-        match ent with
-        | :? FSharp2Fable.FsEnt as ent -> Some ent
-        | _ -> None
-
     let private transformRecordReflectionInfo com ctx r (ent: Fable.Entity) generics =
         // TODO: Refactor these three bindings to reuse in transformUnionReflectionInfo
         let fullname = ent.FullName
@@ -146,6 +141,7 @@ module Reflection =
         | Fable.Char    -> primitiveTypeInfo "char"
         | Fable.String  -> primitiveTypeInfo "string"
         | Fable.Enum ent ->
+            let ent = com.GetEntity(ent)
             let fullName = ent.FullName
             let mutable numberKind = Int32
             let cases =
@@ -184,6 +180,7 @@ module Reflection =
         | Fable.DeclaredType(ent, generics) ->
             match ent, generics with
             | Replacements.BuiltinEntity kind ->
+                let ent = com.GetEntity(ent)
                 match kind with
                 | Replacements.BclGuid
                 | Replacements.BclTimeSpan
@@ -215,6 +212,7 @@ module Reflection =
                 | Replacements.FSharpReference gen ->
                     transformRecordReflectionInfo com ctx r ent [|transformTypeInfo com ctx r genMap gen|]
             | _ ->
+                let ent = com.GetEntity(ent)
                 let generics = generics |> List.map (transformTypeInfo com ctx r genMap) |> List.toArray
                 /// Check if the entity is actually declared in JS code
                 if ent.IsInterface
@@ -240,7 +238,7 @@ module Reflection =
                 match generics with
                 | [||] -> yield Util.undefined None
                 | generics -> yield ArrayExpression generics :> _
-                match tryJsConstructor com ctx ent with
+                match tryJsConstructor com ctx ent.FullName with
                 | Some cons -> yield cons
                 | None -> ()
             |]
@@ -281,7 +279,7 @@ module Reflection =
         | Fable.Option _ -> warnAndEvalToFalse "options" // TODO
         | Fable.GenericParam _ -> warnAndEvalToFalse "generic parameters"
         | Fable.DeclaredType (ent, genArgs) ->
-            match ent.FullName with
+            match ent with
             | Types.idisposable ->
                 match expr with
                 | MaybeCasted(ExprType(Fable.DeclaredType (ent2, _)))
@@ -868,7 +866,7 @@ module Util =
         // Done at the very end of the compile pipeline to get more opportunities
         // of matching cast and literal expressions after resolving pipes, inlining...
         | Fable.DeclaredType(ent,[_]) ->
-            match ent.FullName, e with
+            match ent, e with
             | Types.ienumerableGeneric, Replacements.ArrayOrListLiteral(exprs, _) ->
                 makeArray com ctx exprs
             | _ -> com.TransformAsExpr(ctx, e)
@@ -919,7 +917,7 @@ module Util =
             let values = List.mapToArray (fun x -> com.TransformAsExpr(ctx, x)) values
             let consRef = jsConstructor com ctx ent
             let typeParamInst =
-                if com.Options.Typescript && (ent.FullName = Types.reference)
+                if com.Options.Typescript && (ent = Types.reference)
                 then makeGenTypeParamInst com ctx genArgs
                 else None
             upcast NewExpression(consRef, values, ?typeArguments=typeParamInst, ?loc=r)
@@ -1725,7 +1723,7 @@ module Util =
             let typeParamInst = makeGenTypeParamInst com ctx genArgs
             ClassImplements(id, ?typeParameters=typeParamInst) |> Some
         ent.AllInterfaces |> Seq.choose (fun ifc ->
-            match ifc.Definition.FullName with
+            match ifc.Definition with
             | "Fable.Collections.IMutableSet`1" -> mkNative ifc.GenericArgs "Set"
             | "Fable.Collections.IMutableMap`2" -> mkNative ifc.GenericArgs "Map"
             | _ -> None
@@ -2071,6 +2069,7 @@ module Compiler =
             member _.LibraryDir = com.LibraryDir
             member _.CurrentFile = com.CurrentFile
             member _.ImplementationFiles = com.ImplementationFiles
+            member _.GetEntity(fullName) = com.GetEntity(fullName)
             member _.GetRootModule(fileName) = com.GetRootModule(fileName)
             member _.GetOrAddInlineExpr(fullName, generate) = com.GetOrAddInlineExpr(fullName, generate)
             member _.AddWatchDependency(fileName) = com.AddWatchDependency(fileName)

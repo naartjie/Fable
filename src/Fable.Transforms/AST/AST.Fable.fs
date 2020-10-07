@@ -1,12 +1,12 @@
 namespace rec Fable.AST.Fable
 
-open Fable
 open Fable.AST
-open System
+
+type EntityRef = string
 
 type DeclaredType =
-    abstract Definition: Entity
-    abstract GenericArgs: Type list
+    { Definition: EntityRef
+      GenericArgs: Type list }
 
 type Type =
     | MetaType
@@ -17,115 +17,140 @@ type Type =
     | String
     | Regex
     | Number of NumberKind
-    | Enum of Entity
+    | Enum of EntityRef
     | Option of genericArg: Type
     | Tuple of genericArgs: Type list
     | Array of genericArg: Type
     | List of genericArg: Type
     | LambdaType of Type * returnType: Type
     | DelegateType of Type list * returnType: Type
-    | GenericParam of name: string
-    | DeclaredType of Entity * genericArgs: Type list
-    | AnonymousRecordType of fieldNames: string [] * genericArgs: Type list
+    | GenericParam of GenericParam
+    | DeclaredType of EntityRef * genericArgs: Type list
+    | AnonymousRecordType of fieldNames: string list * genericArgs: Type list
 
     member this.Generics =
         match this with
         | Option gen
         | Array gen
         | List gen -> [ gen ]
-        | LambdaType(argType, returnType) -> [ argType; returnType ]
-        | DelegateType(argTypes, returnType) -> argTypes @ [ returnType ]
+        | LambdaType (argType, returnType) -> [ argType; returnType ]
+        | DelegateType (argTypes, returnType) -> argTypes @ [ returnType ]
         | Tuple gen -> gen
         | DeclaredType (_, gen) -> gen
         | AnonymousRecordType (_, gen) -> gen
         | _ -> []
 
 type Attribute =
-    abstract FullName: string
-    abstract ConstructorArguments: obj list
+    { FullName: string
+      ConstructorArguments: obj list }
 
 type Field =
-    abstract Name: string
-    abstract FieldType: Type
-    abstract IsMutable: bool
-    abstract IsStatic: bool
-    abstract LiteralValue: obj option
+    { Name: string
+      FieldType: Type
+      IsMutable: bool
+      IsStatic: bool
+      LiteralValue: obj option }
 
 type UnionCase =
-    abstract Name: string
-    abstract CompiledName: string option
-    abstract UnionCaseFields: Field list
+    { Name: string
+      CompiledName: string option
+      UnionCaseFields: Field list }
+
+type MemberConstraintInfo =
+    { IsStatic: bool
+      Name: string
+      Sources: Type list
+      ArgTypes: Type list }
+
+type GenericConstraint =
+//    | DefaultsTo of int * Type
+//    | SimpleChoice of Type list
+//    | IsDelegate of Type * Type
+//    | IsUnmanaged
+    | IsEnum //of Type
+    | CoercesTo of Type
+    | SupportsNull
+    | MayResolveMember of MemberConstraintInfo
+    | RequiresDefaultConstructor
+    | IsNonNullableStruct
+    | IsReferenceType
+    | SupportsComparison
+    | SupportsEquality
 
 type GenericParam =
-    abstract Name: string
+    { Name: string
+      Constraints: GenericConstraint list }
 
 type Parameter =
-    abstract Name: string option
-    abstract Type: Type
+    { Attributes: Attribute list
+      Name: string option
+      Type: Type
+      IsOptional: bool }
 
 type MemberInfo =
-    abstract Attributes: Attribute seq
-    abstract HasSpread: bool
-    abstract IsMangled: bool
-    abstract IsPublic: bool
-    abstract IsInstance: bool
-    abstract IsValue: bool
-    abstract IsMutable: bool
-    abstract IsGetter: bool
-    abstract IsSetter: bool
-    abstract IsEnumerator: bool
+    { Attributes: Attribute list
+      HasSpread: bool
+      IsMangled: bool
+      IsPublic: bool
+      IsStatic: bool
+      IsValue: bool
+      IsMutable: bool
+      IsGetter: bool
+      IsSetter: bool
+      IsEnumerator: bool }
 
 type MemberFunctionOrValue =
-    inherit MemberInfo
-    abstract DisplayName: string
-    abstract CompiledName: string
-    abstract FullName: string
-    abstract CurriedParameterGroups: Parameter list list
-    abstract ReturnParameter: Parameter
-    abstract IsExplicitInterfaceImplementation: bool
-    abstract ApparentEnclosingEntity: Entity
+    { Info: MemberInfo
+      FullType: Type
+      DisplayName: string
+      CompiledName: string
+      FullName: string
+      Attributes: Attribute list
+      CurriedParameterGroups: Parameter list list
+      ReturnParameter: Parameter
+      IsCompilerGenerated: bool
+      IsExtensionMember: bool
+      IsExplicitInterfaceImplementation: bool
+      DeclaringEntity: EntityRef option
+      ApparentEnclosingEntity: EntityRef }
 
 // TODO: Add FableDeclarationName to be able to get a reference to the entity
 type Entity =
-    abstract DisplayName: string
-    abstract FullName: string
-    abstract SourcePath: string
-    abstract AssemblyPath: string option
-    abstract Attributes: Attribute seq
-    abstract BaseDeclaration: DeclaredType option
-    abstract AllInterfaces: DeclaredType seq
-    abstract GenericParameters: GenericParam list
-    abstract MembersFunctionsAndValues: MemberFunctionOrValue seq
-    abstract FSharpFields: Field list
-    abstract UnionCases: UnionCase list
-    abstract IsPublic: bool
-    abstract IsFSharpAbbreviation: bool
-    abstract IsFSharpUnion: bool
-    abstract IsFSharpRecord: bool
-    abstract IsValueType: bool
-    abstract IsFSharpExceptionDeclaration: bool
-    abstract IsInterface: bool
+    { DisplayName: string
+      FullName: string
+      SourcePath: string
+      AssemblyPath: string option
+      Attributes: Attribute list
+      BaseDeclaration: DeclaredType option
+      AllInterfaces: DeclaredType list
+      GenericParameters: GenericParam list
+      MembersFunctionsAndValues: MemberFunctionOrValue list
+      FSharpFields: Field list
+      UnionCases: UnionCase list
+      IsPublic: bool
+      IsFSharpAbbreviation: bool
+      IsFSharpUnion: bool
+      IsFSharpRecord: bool
+      IsValueType: bool
+      IsFSharpExceptionDeclaration: bool
+      IsFSharpModule: bool
+      IsInterface: bool }
 
-type ActionDecl = {
-    Body: Expr
-    UsedNames: Set<string>
-}
+type ActionDecl = { Body: Expr; UsedNames: Set<string> }
 
-type MemberDecl = {
-    Name: string
-    Args: Ident list
-    Body: Expr
-    Info: MemberInfo
-    UsedNames: Set<string>
-}
+type MemberDecl =
+    { Name: string
+      Args: Ident list
+      Body: Expr
+      Info: MemberInfo
+      UsedNames: Set<string> }
 
-type ClassDecl = {
-    Name: string
-    Entity: Entity
-    Constructor: MemberDecl option
-    BaseCall: Expr option
-    AttachedMembers: MemberDecl list
-}
+type ClassDecl =
+    { Name: string
+      Entity: EntityRef
+      Constructor: MemberDecl option
+      BaseCall: Expr option
+      AttachedMembers: MemberDecl list }
 
 type Declaration =
     | ActionDeclaration of ActionDecl
@@ -172,19 +197,19 @@ type ValueKind =
     | StringConstant of string
     | NumberConstant of float * NumberKind
     | RegexConstant of source: string * flags: RegexFlag list
-    | EnumConstant of Expr * Entity
+    | EnumConstant of Expr * EntityRef
     | NewOption of value: Expr option * Type
     | NewArray of Expr list * Type
     | NewArrayFrom of Expr * Type
     | NewList of headAndTail: (Expr * Expr) option * Type
     | NewTuple of Expr list
-    | NewRecord of Expr list * Entity * genArgs: Type list
-    | NewAnonymousRecord of Expr list * fieldNames: string [] * genArgs: Type list
-    | NewUnion of Expr list * tag: int * Entity * genArgs: Type list
+    | NewRecord of Expr list * EntityRef * genArgs: Type list
+    | NewAnonymousRecord of Expr list * fieldNames: string list * genArgs: Type list
+    | NewUnion of Expr list * tag: int * EntityRef * genArgs: Type list
     member this.Type =
         match this with
         | ThisValue t
-        | BaseValue(_,t) -> t
+        | BaseValue (_, t) -> t
         | TypeInfo _ -> MetaType
         | Null t -> t
         | UnitConstant -> Unit
@@ -214,7 +239,7 @@ type CallInfo =
 
 type ReplaceCallInfo =
     { CompiledName: string
-      OverloadSuffix: Lazy<string>
+      OverloadSuffix: string
       /// See ArgInfo.SignatureArgTypes
       SignatureArgTypes: Type list
       HasSpread: bool
@@ -304,26 +329,29 @@ type Expr =
         | Test _ -> Boolean
         | Value (kind, _) -> kind.Type
         | IdentExpr id -> id.Type
-        | Call(_,_,t,_)
-        | CurriedApply(_,_,t,_)
+        | Call (_, _, t, _)
+        | CurriedApply (_, _, t, _)
         | TypeCast (_, t)
         | Import (_, t, _)
         | Curry (_, _, t, _)
         | ObjectExpr (_, t, _)
         | Operation (_, t, _)
         | Get (_, _, t, _)
-        | Emit (_,t,_)
+        | Emit (_, t, _)
         | DecisionTreeSuccess (_, _, t) -> t
         | Set _
         | WhileLoop _
-        | ForLoop _-> Unit
-        | Sequential exprs -> List.tryLast exprs |> Option.map (fun e -> e.Type) |> Option.defaultValue Unit
+        | ForLoop _ -> Unit
+        | Sequential exprs ->
+            List.tryLast exprs
+            |> Option.map (fun e -> e.Type)
+            |> Option.defaultValue Unit
         | Let (_, expr)
         | TryCatch (expr, _, _, _)
         | IfThenElse (_, expr, _, _)
         | DecisionTree (expr, _) -> expr.Type
-        | Lambda(arg, body, _) -> LambdaType(arg.Type, body.Type)
-        | Delegate(args, body, _) -> DelegateType(args |> List.map (fun a -> a.Type), body.Type)
+        | Lambda (arg, body, _) -> LambdaType(arg.Type, body.Type)
+        | Delegate (args, body, _) -> DelegateType(args |> List.map (fun a -> a.Type), body.Type)
 
     member this.Range: SourceLocation option =
         match this with
@@ -336,11 +364,11 @@ type Expr =
         | Delegate (_, e, _)
         | TypeCast (e, _) -> e.Range
         | IdentExpr id -> id.Range
-        | Call(_,_,_,r)
-        | CurriedApply(_,_,_,r)
-        | Emit (_,_,r)
-        | Import(_,_,r)
-        | Curry(_,_,_,r)
+        | Call (_, _, _, r)
+        | CurriedApply (_, _, _, r)
+        | Emit (_, _, r)
+        | Import (_, _, r)
+        | Curry (_, _, _, r)
         | Value (_, r)
         | IfThenElse (_, _, _, r)
         | TryCatch (_, _, _, r)
@@ -348,5 +376,5 @@ type Expr =
         | Operation (_, _, r)
         | Get (_, _, _, r)
         | Set (_, _, _, r)
-        | ForLoop (_,_,_,_,_,r)
-        | WhileLoop (_,_,r) -> r
+        | ForLoop (_, _, _, _, _, r)
+        | WhileLoop (_, _, r) -> r
