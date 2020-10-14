@@ -187,7 +187,10 @@ let tests =
 
       testCase "sprintf \"%A\" with overloaded string works" <| fun () ->
             let o = Test(5)
-            (sprintf "%A" o).Replace("\"", "") |> equal "10"
+            sprintf "%A" o |> equal "10"
+
+      testCase "sprintf \"%A\" quotes string" <| fun () ->
+            sprintf "%A" "str val" |> equal "\"str val\""
 
       #if FABLE_COMPILER
       testCase "sprintf \"%A\" with circular references doesn't crash" <| fun () -> // See #338
@@ -198,15 +201,15 @@ let tests =
 
       testCase "sprintf \"%A\" with lists works" <| fun () ->
             let xs = ["Hi"; "Hello"; "Hola"]
-            (sprintf "%A" xs).Replace("\"", "") |> equal "[Hi; Hello; Hola]"
+            sprintf "%A" xs |> equal "[\"Hi\"; \"Hello\"; \"Hola\"]"
 
       testCase "sprintf \"%A\" with nested lists works" <| fun () ->
             let xs = [["Hi"]; ["Hello"]; ["Hola"]]
-            (sprintf "%A" xs).Replace("\"", "") |> equal "[[Hi]; [Hello]; [Hola]]"
+            sprintf "%A" xs |> equal "[[\"Hi\"]; [\"Hello\"]; [\"Hola\"]]"
 
       testCase "sprintf \"%A\" with sequences works" <| fun () ->
             let xs = seq { "Hi"; "Hello"; "Hola" }
-            sprintf "%A" xs |> containsInOrder ["Hi"; "Hello"; "Hola"] |> equal true
+            sprintf "%A" xs |> equal "[\"Hi\"; \"Hello\"; \"Hola\"]"
 
       testCase "Storing result of Seq.tail and printing the result several times works. Related to #1996" <| fun () ->
             let tweets = seq { "Hi"; "Hello"; "Hola" }

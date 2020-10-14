@@ -220,6 +220,8 @@ function formatOnce(str2: string, rep: any) {
           rep = String(rep);
           break;
       }
+    } else if (format === "A" && typeof rep === "string") {
+      rep = "\"" + rep + "\""
     } else {
       rep = toString(rep);
     }
@@ -312,6 +314,8 @@ export function format(str: string, ...args: any[]) {
       }
     } else if (rep instanceof Date) {
       rep = dateToString(rep, pattern || format);
+    } else if (format === "A" && typeof rep === "string") {
+      rep = "\"" + rep + "\""
     } else {
       rep = toString(rep)
     }
