@@ -1063,7 +1063,8 @@ module Util =
     let transformCallArgs (com: IBabelCompiler) ctx hasSpread args =
         match args with
         | []
-        | [MaybeCasted(Fable.Value(Fable.UnitConstant,_))] -> []
+        // | [MaybeCasted(Fable.Value(Fable.UnitConstant,_))] -> []
+        | [MaybeCasted(Fable.Value(Fable.UnitConstant,_))] as args -> List.map (fun e -> com.TransformAsExpr(ctx, e)) args
         | args when hasSpread ->
             match List.rev args with
             | [] -> []
